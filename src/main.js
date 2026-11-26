@@ -3,7 +3,8 @@ import { createStore } from './store/index.js';
 import { matchMember } from './core/auth.js';
 import {
   reconcile, register, cancel, change, findMine, estimateWaitUntil,
-  DURATION_OPTIONS, PoolError,
+  lastEnded, freeSeatsFor, inCooldown,
+  DURATION_OPTIONS, SAME_SEAT_COOLDOWN_MIN, PoolError,
 } from './core/pool.js';
 import { SEATS, LINE_COUNT } from './core/layout.js';
 
@@ -26,7 +27,10 @@ function loadSession() {
   try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; }
 }
 
+let busy = false;
 async function run(mutator) {
+  if (busy) return; // 버튼 연타로 인한 중복 요청 방지
+  busy = true;
   ui.error = '';
   try {
     await ui.store.transact((s) => mutator(s, Date.now()));
@@ -34,6 +38,8 @@ async function run(mutator) {
   } catch (e) {
     ui.error = e instanceof PoolError ? e.message : `처리 실패: ${e.message}`;
     if (!(e instanceof PoolError)) console.error(e);
+  } finally {
+    busy = false;
   }
   render();
 }
@@ -70,14 +76,36 @@ function durationOptions(selected, filter = () => true) {
   return DURATION_OPTIONS.filter(filter)
     .map((m) => `<option value="${m}" ${m === selected ? 'selected' : ''}>${durLabel(m)}</option>`).join('');
 }
-function seatOptions(selected) {
+function seatOptions(selected, allowed = null) {
   return [`<option value="" ${!selected ? 'selected' : ''}>무관 (남는 자리 배정)</option>`]
-    .concat(SEATS.map((s) => `<option value="${s.id}" ${s.id === selected ? 'selected' : ''}>${s.id} (모니터 ${s.monitorSide === 'left' ? '좌' : '우'})</option>`))
+    .concat(SEATS.map((s) => {
+      const disabled = allowed && !allowed.includes(s.id);
+      return `<option value="${s.id}" ${s.id === selected && !disabled ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${s.id} (모니터 ${s.monitorSide === 'left' ? '좌' : '우'})</option>`;
+    }))
     .join('');
 }
 
 function renderMyPanel(state, mine, now) {
   if (!mine) {
+    const ended = lastEnded(state, ui.user, now);
+    if (ended) {
+      // 재배정 신청: 바로 앉을 수 있는 빈 자리가 있을 때만 가능, 같은 자리는 텀 적용
+      const free = freeSeatsFor(state, ui.user, now);
+      const until = ended.endedAt + SAME_SEAT_COOLDOWN_MIN * 60000;
+      return `
+      <section>
+        <h2>재배정 신청</h2>
+        <p>${esc(ended.seatId)} 이용 종료 (${hhmm(ended.endedAt)})</p>
+        <p class="muted">빈 자리가 있을 때만 재신청할 수 있습니다. 같은 자리(${esc(ended.seatId)})는 ${hhmm(until)} 이후 가능합니다.</p>
+        <form id="register-form">
+          <label>이용 시간<select name="duration">${durationOptions(60)}</select></label>
+          <label>자리 지정<select name="seat">${seatOptions(free.includes(ui.selectedSeat) ? ui.selectedSeat : null, free)}</select></label>
+          <div class="row"><button type="submit" ${free.length ? '' : 'disabled'}>재배정 신청</button></div>
+          ${free.length ? '' : '<p class="muted">지금은 빈 자리가 없습니다.</p>'}
+        </form>
+        <p class="error">${esc(ui.error)}</p>
+      </section>`;
+    }
     return `
       <section>
         <h2>예약 등록</h2>
@@ -112,7 +140,7 @@ function renderMyPanel(state, mine, now) {
     </section>`;
 }
 
-function renderRoom(state) {
+function renderRoom(state, now) {
   const lines = Array.from({ length: LINE_COUNT }, (_, i) => SEATS.filter((s) => s.line === i + 1));
   return `
     <section>
@@ -128,7 +156,8 @@ function renderRoom(state) {
               return `<div class="${cls}" data-seat="${d.id}" title="클릭하면 등록 폼에 자리 지정">
                 <span class="monitor ${d.monitorSide}"></span>
                 <div class="seat-id">${d.id}</div>
-                ${a ? `<div>${esc(a.nickname)}</div><div class="muted">~ ${hhmm(a.endAt)}</div>` : '<div class="muted">비어 있음</div>'}
+                ${a ? `<div>${esc(a.nickname)}</div><div class="muted">~ ${hhmm(a.endAt)}</div>`
+                    : inCooldown(state, ui.user, d.id, now) ? '<div class="muted">비어 있음<br/>(내 재배정 텀)</div>' : '<div class="muted">비어 있음</div>'}
               </div>`;
             }).join('')}
           </div>`).join('')}
@@ -166,7 +195,7 @@ function renderPool() {
     </header>
     <div class="layout">
       <div>${renderMyPanel(state, mine, now)}</div>
-      <div>${renderRoom(state)}</div>
+      <div>${renderRoom(state, now)}</div>
       <div>${renderWaitlist(state)}</div>
     </div>`;
   bindPool(mine);

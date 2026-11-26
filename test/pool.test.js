@@ -125,3 +125,60 @@ describe('auth', () => {
     expect(matchMember(members, '브라운', 'neo@example.com')).toBeNull();
   });
 });
+
+describe('중복 배정 방지 / 재배정 / 같은 자리 텀', () => {
+  it('상태가 꼬여 같은 사람이 대기열과 자리에 동시에 있어도 두 자리를 받지 않는다', () => {
+    let s = register(createEmptyState(), u(1), { durationMin: 30, seatPref: null }, T0);
+    s.queue.push({ id: 'dup', nickname: 'u1', email: 'u1@ex.com', seatPref: null, durationMin: 30, createdAt: T0 });
+    s = reconcile(s, T0 + MIN);
+    const seats = Object.values(s.seats).filter((a) => a && a.email === 'u1@ex.com');
+    expect(seats).toHaveLength(1);
+    expect(s.queue).toHaveLength(0);
+  });
+
+  it('동시 등록을 순서대로 적용해도 같은 자리는 한 명만 받는다', () => {
+    let s = createEmptyState();
+    for (let i = 1; i <= 3; i++) s = register(s, u(i), { durationMin: 30, seatPref: 'L1-1' }, T0);
+    expect(s.seats['L1-1'].email).toBe('u1@ex.com');
+    expect(s.queue.map((w) => w.email)).toEqual(['u2@ex.com', 'u3@ex.com']);
+  });
+
+  it('끝난 뒤 빈 자리가 있으면 재배정 신청 가능 (다른 자리)', () => {
+    let s = register(createEmptyState(), u(1), { durationMin: 30, seatPref: null }, T0);
+    s = reconcile(s, T0 + 30 * MIN);
+    s = register(s, u(1), { durationMin: 30, seatPref: null }, T0 + 31 * MIN);
+    expect(findMine(s, u(1)).entry.seatId).toBe('L1-2'); // L1-1 은 텀
+  });
+
+  it('같은 자리는 종료 후 5분 텀, 지나면 가능', () => {
+    let s = register(createEmptyState(), u(1), { durationMin: 30, seatPref: 'L2-2' }, T0);
+    const id = findMine(s, u(1)).entry.id;
+    s = cancel(s, u(1), id, T0 + 10 * MIN);
+    expect(() => register(s, u(1), { durationMin: 30, seatPref: 'L2-2' }, T0 + 12 * MIN)).toThrow(/5분/);
+    s = register(s, u(1), { durationMin: 30, seatPref: 'L2-2' }, T0 + 15 * MIN);
+    expect(s.seats['L2-2'].email).toBe('u1@ex.com');
+  });
+
+  it('텀 동안 빈 자리가 없으면 재신청(대기열 진입) 불가', () => {
+    let s = fill(createEmptyState(), 12, T0, 30);
+    s = register(s, u(13), { durationMin: 30, seatPref: null }, T0); // 대기
+    s = cancel(s, u(1), findMine(s, u(1)).entry.id, T0 + 5 * MIN); // u13 이 L1-1 받음 → 빈 자리 0
+    expect(findMine(s, u(13)).entry.seatId).toBe('L1-1');
+    expect(() => register(s, u(1), { durationMin: 30, seatPref: null }, T0 + 6 * MIN)).toThrow(/빈 자리/);
+  });
+
+  it('텀이 지나면 일반 신청과 동일 (대기열 진입 가능)', () => {
+    let s = fill(createEmptyState(), 12, T0, 60);
+    s = cancel(s, u(1), findMine(s, u(1)).entry.id, T0);
+    s = register(s, u(13), { durationMin: 30, seatPref: null }, T0);
+    s = register(s, u(1), { durationMin: 30, seatPref: null }, T0 + 6 * MIN);
+    expect(findMine(s, u(1)).status).toBe('waiting');
+  });
+
+  it('지정 대기자는 자신의 텀 자리는 텀이 끝날 때 배정된다', () => {
+    let s = register(createEmptyState(), u(1), { durationMin: 30, seatPref: 'L3-3' }, T0);
+    s = reconcile(s, T0 + 30 * MIN); // 종료, 텀 시작
+    s = reconcile(s, T0 + 36 * MIN); // 텀 종료
+    expect(s.recent).toHaveLength(0);
+  });
+});
