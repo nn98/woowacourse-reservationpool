@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 단순 일치 로그인(클라이언트 비교)이므로 서버 측 인증이 없다.
+    // 예약 상태 문서 하나만 읽기/쓰기 허용하고 나머지는 모두 차단.
+    match /reservationPool/current {
+      allow read, write: if true;
+    }
+  }
+}

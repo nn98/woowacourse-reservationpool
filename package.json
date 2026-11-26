@@ -1,0 +1,20 @@
+{
+  "name": "woowacourse-reservationpool",
+  "version": "0.1.0",
+  "description": "공용공간(책상 12석) 자동 배정 예약 시스템",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "firebase": "^11.10.0"
+  },
+  "devDependencies": {
+    "vite": "^6.4.6",
+    "vitest": "^3.2.7"
+  },
+  "private": true,
+  "type": "module"
+}

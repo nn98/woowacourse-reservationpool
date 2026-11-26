@@ -1,0 +1,8 @@
+{
+  "members": [
+    { "nickname": "테스트1", "email": "test1@example.com" },
+    { "nickname": "테스트2", "email": "test2@example.com" },
+    { "nickname": "테스트3", "email": "test3@example.com" },
+    { "nickname": "테스트4", "email": "test4@example.com" }
+  ]
+}
