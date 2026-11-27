@@ -52,7 +52,7 @@ function renderLogin(prefill = {}) {
         <h2>공용공간 예약 로그인</h2>
         ${ui.config.dummy ? '<p class="badge">더미 모드 (Firebase 미연결)</p>' : ''}
         <label>닉네임<input name="nickname" required autocomplete="nickname" value="${esc(prefill.nickname)}" /></label>
-        <label>이메일<input name="email" type="text" required autocomplete="email" value="${esc(prefill.email)}" /></label>
+        <label>이메일<input name="email" type="email" required autocomplete="email" value="${esc(prefill.email)}" /></label>
         <div class="row"><button type="submit">로그인</button></div>
         <p class="error">${esc(ui.error)}</p>
       </section>

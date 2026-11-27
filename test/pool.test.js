@@ -184,9 +184,9 @@ describe('중복 배정 방지 / 재배정 / 같은 자리 텀', () => {
 });
 
 describe('테스트 계정', () => {
-  it('글렌 / 1234 로그인', async () => {
+  it('글렌 / 1234@test.com 로그인', async () => {
     const { readFileSync } = await import('node:fs');
     const { members } = JSON.parse(readFileSync(new URL('../public/config/members.json', import.meta.url), 'utf-8'));
-    expect(matchMember(members, '글렌', '1234')).toEqual({ nickname: '글렌', email: '1234' });
+    expect(matchMember(members, '글렌', '1234@test.com')).toEqual({ nickname: '글렌', email: '1234@test.com' });
   });
 });
