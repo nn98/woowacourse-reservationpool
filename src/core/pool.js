@@ -202,7 +202,8 @@ export function cancel(input, user, entryId, now) {
 /**
  * 변경
  * - 대기 중: 이용 시간 / 자리 지정 변경 가능 (대기 순번 유지)
- * - 이용 중: 이용 시간만 변경 가능 (시작 시각 기준 최대 2시간, 이미 지난 시간으로 줄일 수 없음)
+ * - 이용 중: 이용 시간 변경 (시작 시각 기준 최대 2시간, 이미 지난 시간으로 줄일 수 없음)
+ *           + 지금 비어 있는 자리로 이동 (seatPref 에 이동할 자리 id)
  */
 export function change(input, user, entryId, request, now) {
   validateRequest(request);
@@ -211,13 +212,17 @@ export function change(input, user, entryId, request, now) {
   if (seatId) {
     const a = state.seats[seatId];
     if (!sameUser(a, user)) throw new PoolError('FORBIDDEN', '본인 예약만 변경할 수 있습니다.');
-    if (request.seatPref !== undefined && (request.seatPref ?? null) !== (a.seatPref ?? null)) {
-      throw new PoolError('SEAT_LOCKED', '이용 중에는 자리를 바꿀 수 없습니다. 취소 후 다시 등록해 주세요.');
-    }
     const endAt = a.startAt + request.durationMin * MIN_MS;
     if (endAt <= now) throw new PoolError('INVALID_DURATION', '이미 지난 시간으로는 줄일 수 없습니다.');
     a.durationMin = request.durationMin;
     a.endAt = endAt;
+    // 자리 이동: 지금 비어 있는 자리로만 옮길 수 있음 (남은 시간 유지, 기존 자리는 바로 다음 대기자에게)
+    const target = request.seatPref;
+    if (target && target !== seatId) {
+      if (state.seats[target]) throw new PoolError('SEAT_TAKEN', '이용 중에는 비어 있는 자리로만 옮길 수 있습니다.');
+      state.seats[target] = { ...a, seatId: target, seatPref: target };
+      state.seats[seatId] = null;
+    }
     return reconcile(state, now);
   }
   const w = state.queue.find((q) => q.id === entryId);

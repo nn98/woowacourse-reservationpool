@@ -106,7 +106,22 @@ describe('cancel / change', () => {
     s = change(s, u(1), id, { durationMin: 120 }, T0 + 20 * MIN);
     expect(findMine(s, u(1)).entry.endAt).toBe(T0 + 120 * MIN);
     expect(() => change(s, u(1), id, { durationMin: 30 }, T0 + 40 * MIN)).toThrow(/지난/);
-    expect(() => change(s, u(1), id, { durationMin: 60, seatPref: 'L4-1' }, T0)).toThrow(/자리를 바꿀 수 없/);
+  });
+
+  it('이용 중 빈 자리로 이동 가능, 남은 시간 유지, 기존 자리는 대기자에게', () => {
+    let s = register(createEmptyState(), u(1), { durationMin: 60, seatPref: 'L1-1' }, T0);
+    s = register(s, u(2), { durationMin: 30, seatPref: 'L1-1' }, T0); // L1-1 대기
+    const id = findMine(s, u(1)).entry.id;
+    s = change(s, u(1), id, { durationMin: 60, seatPref: 'L4-1' }, T0 + 10 * MIN);
+    expect(findMine(s, u(1)).entry).toMatchObject({ seatId: 'L4-1', startAt: T0, endAt: T0 + 60 * MIN });
+    expect(s.seats['L1-1'].email).toBe('u2@ex.com');
+    expect(s.recent).toHaveLength(0); // 이동은 종료가 아니므로 텀 없음
+  });
+
+  it('이용 중 사용 중인 자리로는 이동 불가', () => {
+    let s = register(createEmptyState(), u(1), { durationMin: 60, seatPref: 'L1-1' }, T0);
+    s = register(s, u(2), { durationMin: 60, seatPref: 'L1-2' }, T0);
+    expect(() => change(s, u(1), findMine(s, u(1)).entry.id, { durationMin: 60, seatPref: 'L1-2' }, T0)).toThrow(/비어 있는 자리/);
   });
 
   it('반납하면 대기자가 즉시 배정된다', () => {

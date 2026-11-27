@@ -13,14 +13,14 @@ input, select { width: 100%; }
 button { cursor: pointer; }
 .row { display: flex; gap: 6px; margin-top: 8px; }
 .error { color: #c00; font-size: 13px; min-height: 1em; }
-.room { display: flex; gap: 24px; justify-content: center; overflow-x: auto; }
+.room { display: flex; gap: 20px; justify-content: center; overflow-x: auto; }
 .line { display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .line-title { font-size: 12px; color: #666; }
-.desk { position: relative; width: 120px; height: 72px; border: 1px solid #999; border-radius: 4px; padding: 6px; font-size: 12px; background: #fff; cursor: pointer; }
+.desk { position: relative; width: 84px; height: 120px; border: 1px solid #999; border-radius: 4px; padding: 6px; font-size: 12px; background: #fff; cursor: pointer; }
 .desk.busy { background: #eee; }
 .desk.mine { outline: 2px solid #06c; }
 .desk.selected { border-color: #06c; border-width: 2px; }
-.desk .monitor { position: absolute; top: 18px; width: 6px; height: 34px; background: #333; border-radius: 2px; }
+.desk .monitor { position: absolute; top: 30px; width: 6px; height: 60px; background: #333; border-radius: 2px; }
 .desk .monitor.left { left: -4px; }
 .desk .monitor.right { right: -4px; }
 .desk .seat-id { font-weight: bold; }
@@ -29,3 +29,5 @@ button { cursor: pointer; }
 .waitlist li.mine { background: #eef5ff; }
 .muted { color: #777; font-size: 12px; }
 .login { max-width: 320px; margin: 60px auto; }
+.desk { overflow-wrap: anywhere; }
+#user-switch { width: auto; }

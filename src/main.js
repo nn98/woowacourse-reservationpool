@@ -12,7 +12,8 @@ const SESSION_KEY = 'rp/session';
 const TICK_MS = 15_000;
 const app = document.getElementById('app');
 
-const ui = { config: null, store: null, user: null, raw: null, error: '', selectedSeat: null, editing: false };
+// edit: 변경 모드일 때 선택 중인 값 { durationMin, seat } (null 이면 변경 모드 아님)
+const ui = { config: null, store: null, user: null, raw: null, error: '', selectedSeat: null, edit: null };
 
 // ---------- helpers ----------
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -34,7 +35,7 @@ async function run(mutator) {
   ui.error = '';
   try {
     await ui.store.transact((s) => mutator(s, Date.now()));
-    ui.editing = false;
+    ui.edit = null;
   } catch (e) {
     ui.error = e instanceof PoolError ? e.message : `처리 실패: ${e.message}`;
     if (!(e instanceof PoolError)) console.error(e);
@@ -124,18 +125,22 @@ function renderMyPanel(state, mine, now) {
     ? `<p><b>${esc(e.seatId)}</b> 이용 중<br/>${hhmm(e.startAt)} ~ ${hhmm(e.endAt)} (${durLabel(e.durationMin)})</p>`
     : `<p><b>대기 ${mine.position}번째</b><br/>자리: ${esc(seatLabel(e.seatPref))} · ${durLabel(e.durationMin)}<br/>
        <span class="muted">예상 배정: ${hhmm(estimateWaitUntil(state, e))} 이후</span></p>`;
-  const editForm = !ui.editing ? '' : `
+  // 이용 중이면 현재 자리 + 지금 빈 자리로만 이동 가능, 대기 중이면 아무 자리나 무관
+  const movable = isActive ? [e.seatId, ...SEATS.map((d) => d.id).filter((id) => !state.seats[id])] : null;
+  const editForm = !ui.edit ? '' : `
     <form id="change-form">
-      <label>이용 시간<select name="duration">${durationOptions(e.durationMin, (m) => !isActive || e.startAt + m * 60000 > now)}</select></label>
-      ${isActive ? '<p class="muted">이용 중에는 시간만 변경할 수 있습니다.</p>' : `<label>자리 지정<select name="seat">${seatOptions(e.seatPref)}</select></label>`}
+      <label>이용 시간<select name="duration">${durationOptions(ui.edit.durationMin, (m) => !isActive || e.startAt + m * 60000 > now)}</select></label>
+      <label>${isActive ? '자리 이동' : '자리 지정'}<select name="seat">${isActive ? seatOptions(ui.edit.seat, movable).replace(/^<option value="" [^>]*>[^<]*<\/option>/, '') : seatOptions(ui.edit.seat)}</select></label>
+      <p class="muted">좌석 배치도에서 자리를 눌러도 선택됩니다.${isActive ? ' 이용 중에는 비어 있는 자리로만 옮길 수 있습니다.' : ''}</p>
       <div class="row"><button type="submit">변경 저장</button><button type="button" id="edit-cancel">닫기</button></div>
+      <div class="row"><button type="button" id="cancel-btn">${isActive ? '반납' : '대기 취소'}</button></div>
     </form>`;
   return `
     <section>
       <h2>내 예약</h2>
       ${head}
       ${editForm}
-      ${ui.editing ? '' : `<div class="row"><button id="edit-btn">변경</button><button id="cancel-btn">${isActive ? '반납' : '대기 취소'}</button></div>`}
+      ${ui.edit ? '' : `<div class="row"><button id="edit-btn">변경</button><button id="cancel-btn">${isActive ? '반납' : '대기 취소'}</button></div>`}
       <p class="error">${esc(ui.error)}</p>
     </section>`;
 }
@@ -152,8 +157,9 @@ function renderRoom(state, now) {
             ${desks.map((d) => {
               const a = state.seats[d.id];
               const mine = a && a.email === ui.user.email;
-              const cls = ['desk', a ? 'busy' : '', mine ? 'mine' : '', ui.selectedSeat === d.id ? 'selected' : ''].join(' ');
-              return `<div class="${cls}" data-seat="${d.id}" title="클릭하면 등록 폼에 자리 지정">
+              const picked = ui.edit ? ui.edit.seat === d.id : ui.selectedSeat === d.id;
+              const cls = ['desk', a ? 'busy' : '', mine ? 'mine' : '', picked ? 'selected' : ''].join(' ');
+              return `<div class="${cls}" data-seat="${d.id}" title="클릭해서 자리 선택">
                 <span class="monitor ${d.monitorSide}"></span>
                 <div class="seat-id">${d.id}</div>
                 ${a ? `<div>${esc(a.nickname)}</div><div class="muted">~ ${hhmm(a.endAt)}</div>`
@@ -188,7 +194,9 @@ function renderPool() {
       <h1 style="font-size:20px;margin:0">공용공간 예약</h1>
       <div>
         ${ui.config.dummy ? '<span class="badge">더미 모드</span>' : ''}
-        <b>${esc(ui.user.nickname)}</b> <span class="muted">${esc(ui.user.email)}</span>
+        ${ui.config.dummy
+          ? `<select id="user-switch" title="더미 모드 전용: 사용자 전환">${ui.config.members.map((m) => `<option value="${esc(m.email)}" ${m.email.trim().toLowerCase() === ui.user.email ? 'selected' : ''}>${esc(m.nickname)} (${esc(m.email)})</option>`).join('')}</select>`
+          : `<b>${esc(ui.user.nickname)}</b> <span class="muted">${esc(ui.user.email)}</span>`}
         <button id="logout-btn">로그아웃</button>
         ${ui.config.dummy ? '<button id="reset-btn">더미 데이터 초기화</button>' : ''}
       </div>
@@ -205,8 +213,30 @@ function bindPool(mine) {
   const $ = (sel) => app.querySelector(sel);
   $('#logout-btn').onclick = () => { saveSession(null); ui.user = null; stopPool(); renderLogin(); };
   $('#reset-btn') && ($('#reset-btn').onclick = () => ui.store.reset());
+  $('#user-switch')?.addEventListener('change', (e) => {
+    const m = ui.config.members.find((x) => x.email === e.target.value);
+    ui.user = matchMember(ui.config.members, m.nickname, m.email);
+    saveSession(ui.user);
+    Object.assign(ui, { edit: null, selectedSeat: null, error: '' });
+    render();
+  });
   app.querySelectorAll('.desk').forEach((el) => {
-    el.onclick = () => { ui.selectedSeat = ui.selectedSeat === el.dataset.seat ? null : el.dataset.seat; render(); };
+    el.onclick = () => {
+      const id = el.dataset.seat;
+      if (ui.edit) {
+        // 변경 모드: 이동/지정할 자리 선택 (다시 누르면 선택 해제 → 대기 중이면 무관, 이용 중이면 현재 자리)
+        const isActive = mine?.status === 'active';
+        if (isActive && ui.raw && reconcile(ui.raw, Date.now()).seats[id] && id !== mine.entry.seatId) {
+          ui.error = '이용 중에는 비어 있는 자리로만 옮길 수 있습니다.';
+        } else {
+          ui.error = '';
+          ui.edit.seat = ui.edit.seat === id ? (isActive ? mine.entry.seatId : null) : id;
+        }
+      } else {
+        ui.selectedSeat = ui.selectedSeat === id ? null : id;
+      }
+      render();
+    };
   });
   $('#register-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -220,15 +250,23 @@ function bindPool(mine) {
   $('#cancel-btn') && ($('#cancel-btn').onclick = () => {
     if (confirm('예약을 취소(반납)할까요?')) run((s, now) => cancel(s, ui.user, id, now));
   });
-  $('#edit-btn') && ($('#edit-btn').onclick = () => { ui.editing = true; render(); });
-  $('#edit-cancel') && ($('#edit-cancel').onclick = () => { ui.editing = false; render(); });
-  $('#change-form')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const request = { durationMin: Number(fd.get('duration')) };
-    if (mine.status === 'waiting') request.seatPref = fd.get('seat') || null;
-    run((s, now) => change(s, ui.user, id, request, now));
+  $('#edit-btn') && ($('#edit-btn').onclick = () => {
+    const e = mine.entry;
+    ui.edit = { durationMin: e.durationMin, seat: mine.status === 'active' ? e.seatId : e.seatPref };
+    ui.error = '';
+    render();
   });
+  $('#edit-cancel') && ($('#edit-cancel').onclick = () => { ui.edit = null; ui.error = ''; render(); });
+  const form = $('#change-form');
+  if (form) {
+    form.duration.onchange = () => { ui.edit.durationMin = Number(form.duration.value); };
+    form.seat.onchange = () => { ui.edit.seat = form.seat.value || null; render(); };
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const request = { durationMin: ui.edit.durationMin, seatPref: ui.edit.seat ?? null };
+      run((s, now) => change(s, ui.user, id, request, now));
+    });
+  }
 }
 
 function render() {
@@ -245,13 +283,13 @@ let timer = null;
 function startPool() {
   render();
   unsubscribe = ui.store.subscribe(
-    (data) => { ui.raw = data; if (!ui.editing) render(); },
+    (data) => { ui.raw = data; if (!ui.edit) render(); },
     (err) => { ui.error = `실시간 연결 오류: ${err.message}`; render(); },
   );
   const tick = () => {
     // 만료 정리 + 대기자 배정을 저장소에 반영 (변경이 있을 때만 쓰기)
     ui.store.transact((s) => reconcile(s, Date.now())).catch((e) => console.warn('reconcile 실패', e));
-    if (!ui.editing) render();
+    if (!ui.edit) render();
   };
   tick();
   timer = setInterval(tick, TICK_MS);
